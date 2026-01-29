@@ -25,6 +25,54 @@ export const SUPPORTED_CHAINS = {
     blockExplorer: "https://sepolia.etherscan.io",
     fhenixEnabled: true,
   },
+  // Ethereum Mainnet
+  1: {
+    name: "Ethereum",
+    contracts: {
+      CryptoCupid: "",
+      CupidToken: "",
+    },
+    rpcUrl: "https://eth.llamarpc.com",
+    blockExplorer: "https://etherscan.io",
+    fhenixEnabled: false,
+    demoMode: true,
+  },
+  // Arbitrum One
+  42161: {
+    name: "Arbitrum One",
+    contracts: {
+      CryptoCupid: "",
+      CupidToken: "",
+    },
+    rpcUrl: "https://arb1.arbitrum.io/rpc",
+    blockExplorer: "https://arbiscan.io",
+    fhenixEnabled: false,
+    demoMode: true,
+  },
+  // Base
+  8453: {
+    name: "Base",
+    contracts: {
+      CryptoCupid: "",
+      CupidToken: "",
+    },
+    rpcUrl: "https://mainnet.base.org",
+    blockExplorer: "https://basescan.org",
+    fhenixEnabled: false,
+    demoMode: true,
+  },
+  // Polygon
+  137: {
+    name: "Polygon",
+    contracts: {
+      CryptoCupid: "",
+      CupidToken: "",
+    },
+    rpcUrl: "https://polygon-rpc.com",
+    blockExplorer: "https://polygonscan.com",
+    fhenixEnabled: false,
+    demoMode: true,
+  },
   // Local development
   31337: {
     name: "Local Hardhat",
@@ -35,6 +83,7 @@ export const SUPPORTED_CHAINS = {
     rpcUrl: "http://localhost:8545",
     blockExplorer: "",
     fhenixEnabled: false,
+    demoMode: true,
   },
 };
 

@@ -131,35 +131,45 @@ export class CryptoCupidSDK {
     // Check if network is supported
     const chainConfig = SUPPORTED_CHAINS[this.chainId];
     if (!chainConfig) {
-      throw new Error(`Unsupported network (Chain ID: ${this.chainId}). Please switch to Arbitrum Sepolia or Ethereum Sepolia.`);
+      // Allow any network in demo mode
+      this.demoMode = true;
+      this.networkName = `Chain ${this.chainId}`;
+      console.log("Running in demo mode - contracts not available on this network");
+      return { address: this.address, chainId: this.chainId, networkName: this.networkName, demoMode: true };
     }
 
-    // Check if contracts are configured
-    if (!chainConfig.contracts.CryptoCupid || !chainConfig.contracts.CupidToken) {
-      throw new Error(`Contracts not deployed on ${chainConfig.name}. Please check config.js.`);
+    this.networkName = chainConfig.name;
+    this.demoMode = chainConfig.demoMode || false;
+
+    // Check if contracts are configured (skip in demo mode)
+    if (!chainConfig.demoMode && (!chainConfig.contracts.CryptoCupid || !chainConfig.contracts.CupidToken)) {
+      this.demoMode = true;
+      console.log(`Contracts not deployed on ${chainConfig.name} - running in demo mode`);
     }
 
-    // Initialize contract instances
-    this.contracts.dating = new ethers.Contract(
-      chainConfig.contracts.CryptoCupid,
-      CRYPTO_CUPID_ABI,
-      this.signer
-    );
+    // Initialize contract instances only if not in demo mode and contracts are deployed
+    if (!this.demoMode && chainConfig.contracts.CryptoCupid && chainConfig.contracts.CupidToken) {
+      this.contracts.dating = new ethers.Contract(
+        chainConfig.contracts.CryptoCupid,
+        CRYPTO_CUPID_ABI,
+        this.signer
+      );
 
-    this.contracts.token = new ethers.Contract(
-      chainConfig.contracts.CupidToken,
-      CUPID_TOKEN_ABI,
-      this.signer
-    );
+      this.contracts.token = new ethers.Contract(
+        chainConfig.contracts.CupidToken,
+        CUPID_TOKEN_ABI,
+        this.signer
+      );
 
-    // Initialize CoFHE client if available
-    if (chainConfig.fhenixEnabled) {
-      try {
-        // Dynamic import for CoFHE SDK
-        const { CoFheClient } = await import("@fhenixprotocol/cofhejs");
-        this.cofhe = await CoFheClient.create({ provider: this.provider });
-      } catch (e) {
-        console.warn("CoFHE SDK not available, FHE features will be limited:", e.message);
+      // Initialize CoFHE client if available
+      if (chainConfig.fhenixEnabled) {
+        try {
+          // Dynamic import for CoFHE SDK
+          const { CoFheClient } = await import("@fhenixprotocol/cofhejs");
+          this.cofhe = await CoFheClient.create({ provider: this.provider });
+        } catch (e) {
+          console.warn("CoFHE SDK not available, FHE features will be limited:", e.message);
+        }
       }
     }
 
@@ -181,7 +191,8 @@ export class CryptoCupidSDK {
     return {
       address: this.address,
       chainId: this.chainId,
-      networkName: chainConfig.name,
+      networkName: this.networkName,
+      demoMode: this.demoMode,
     };
   }
 
