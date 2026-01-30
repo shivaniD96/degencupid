@@ -115,17 +115,12 @@ export class CryptoCupidSDK {
     }
 
     try {
-      // Get accounts - try eth_accounts first, then eth_requestAccounts
-      let accounts;
-      try {
-        accounts = await window.ethereum.request({ method: "eth_accounts" });
-      } catch (e) {
-        console.log("[CryptoCupid] eth_accounts failed, trying eth_requestAccounts");
-      }
-
-      if (!accounts || accounts.length === 0) {
-        accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
-      }
+      // Request accounts directly - this is the standard way
+      console.log("[CryptoCupid] Requesting accounts...");
+      const accounts = await window.ethereum.request({
+        method: "eth_requestAccounts"
+      });
+      console.log("[CryptoCupid] Accounts result:", accounts);
 
       if (!accounts || accounts.length === 0) {
         throw new Error("No accounts found. Please connect your wallet.");
@@ -135,67 +130,46 @@ export class CryptoCupidSDK {
       console.log("[CryptoCupid] Address:", this.address);
 
       // Get chain ID
+      console.log("[CryptoCupid] Getting chain ID...");
       const chainIdHex = await window.ethereum.request({ method: "eth_chainId" });
       this.chainId = parseInt(chainIdHex, 16);
       console.log("[CryptoCupid] Chain:", this.chainId);
 
-      // Create ethers provider/signer
-      this.provider = new ethers.BrowserProvider(window.ethereum);
-      this.signer = await this.provider.getSigner();
-      console.log("[CryptoCupid] Provider ready");
+      // Store the raw provider reference
+      this._rawProvider = window.ethereum;
+
+      // Defer ethers provider creation - create lazily when needed
+      // This avoids potential hanging issues with BrowserProvider
+      this.provider = null;
+      this.signer = null;
+      console.log("[CryptoCupid] Connection successful!");
 
       // Check if network is supported
       const chainConfig = SUPPORTED_CHAINS[this.chainId];
-      if (!chainConfig) {
-        // Allow any network in demo mode
-        this.demoMode = true;
+      if (chainConfig) {
+        this.networkName = chainConfig.name;
+        this.demoMode = chainConfig.demoMode || !chainConfig.contracts?.CryptoCupid;
+      } else {
         this.networkName = `Chain ${this.chainId}`;
-        console.log("Running in demo mode - contracts not available on this network");
-        return { address: this.address, chainId: this.chainId, networkName: this.networkName, demoMode: true };
-      }
-
-      this.networkName = chainConfig.name;
-      this.demoMode = chainConfig.demoMode || false;
-
-      // Check if contracts are configured (skip in demo mode)
-      if (!chainConfig.demoMode && (!chainConfig.contracts.CryptoCupid || !chainConfig.contracts.CupidToken)) {
         this.demoMode = true;
-        console.log(`Contracts not deployed on ${chainConfig.name} - running in demo mode`);
       }
 
-      // Initialize contract instances only if not in demo mode and contracts are deployed
-      if (!this.demoMode && chainConfig.contracts.CryptoCupid && chainConfig.contracts.CupidToken) {
-        this.contracts.dating = new ethers.Contract(
-          chainConfig.contracts.CryptoCupid,
-          CRYPTO_CUPID_ABI,
-          this.signer
-        );
-
-        this.contracts.token = new ethers.Contract(
-          chainConfig.contracts.CupidToken,
-          CUPID_TOKEN_ABI,
-          this.signer
-        );
-
-        // CoFHE client initialization disabled - package has broken exports
-        if (chainConfig.fhenixEnabled) {
-          console.log("FHE features using fallback encoding (CoFHE SDK disabled)");
-          this.cofhe = null;
-        }
-      }
+      console.log("[CryptoCupid] Network:", this.networkName, "Demo mode:", this.demoMode);
 
       // Listen for account and chain changes
-      window.ethereum.on("accountsChanged", (accounts) => {
-        if (accounts.length === 0) {
-          this.disconnect();
-        } else {
-          window.location.reload();
-        }
-      });
+      if (window.ethereum.on) {
+        window.ethereum.on("accountsChanged", (accounts) => {
+          if (accounts.length === 0) {
+            this.disconnect();
+          } else {
+            window.location.reload();
+          }
+        });
 
-      window.ethereum.on("chainChanged", () => {
-        window.location.reload();
-      });
+        window.ethereum.on("chainChanged", () => {
+          window.location.reload();
+        });
+      }
 
       return {
         address: this.address,
