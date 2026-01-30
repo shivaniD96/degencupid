@@ -4,19 +4,7 @@
  */
 
 import { ethers } from "ethers";
-import { createWalletClient, createPublicClient, custom } from "viem";
-import { base, mainnet, arbitrum, polygon, sepolia, arbitrumSepolia } from "viem/chains";
 import { SUPPORTED_CHAINS, DEFAULT_CHAIN_ID } from "./config.js";
-
-// Map chain IDs to viem chain objects
-const VIEM_CHAINS = {
-  1: mainnet,
-  8453: base,
-  42161: arbitrum,
-  137: polygon,
-  11155111: sepolia,
-  421614: arbitrumSepolia,
-};
 
 // ============ Contract ABIs ============
 // These are generated during compilation - import from artifacts in production
@@ -117,104 +105,44 @@ export class CryptoCupidSDK {
   }
 
   /**
-   * Detect if running inside a wallet browser (Base, Coinbase, MetaMask, etc.)
-   */
-  isWalletBrowser() {
-    if (typeof window === "undefined") return false;
-    const ua = navigator.userAgent || "";
-    // Check for common wallet browser signatures
-    return (
-      ua.includes("CoinbaseWallet") ||
-      ua.includes("BaseBrowser") ||
-      ua.includes("MetaMask") ||
-      ua.includes("Trust") ||
-      ua.includes("Rainbow") ||
-      // Also check if ethereum is injected and we're on mobile
-      (window.ethereum && /Android|iPhone|iPad|iPod/i.test(ua))
-    );
-  }
-
-  /**
-   * Connect to wallet and initialize SDK using viem
+   * Connect to wallet - simple and direct
    */
   async connect() {
-    console.log("[CryptoCupid] Starting wallet connection...");
-    console.log("[CryptoCupid] User agent:", navigator.userAgent);
-    console.log("[CryptoCupid] Is wallet browser:", this.isWalletBrowser());
-    console.log("[CryptoCupid] window.ethereum exists:", !!window.ethereum);
+    console.log("[CryptoCupid] Starting connection...");
 
-    if (typeof window === "undefined") {
-      throw new Error("Window not available.");
+    if (typeof window === "undefined" || !window.ethereum) {
+      throw new Error("No wallet found. Please open in Base Wallet or install MetaMask.");
     }
-
-    // Check for ethereum provider
-    if (!window.ethereum) {
-      throw new Error("No wallet found. Please install MetaMask or open this page in a wallet browser (Base, Coinbase, etc.).");
-    }
-
-    // Log provider details for debugging
-    console.log("[CryptoCupid] Provider info:", {
-      isMetaMask: window.ethereum.isMetaMask,
-      isCoinbaseWallet: window.ethereum.isCoinbaseWallet,
-      isCoinbaseBrowser: window.ethereum.isCoinbaseBrowser,
-      isBase: window.ethereum.isBase,
-      providerCount: window.ethereum.providers?.length
-    });
 
     try {
-      // First check if already connected (common in wallet browsers)
-      console.log("[CryptoCupid] Checking for existing connection...");
-      let accounts = await window.ethereum.request({ method: "eth_accounts" });
-      console.log("[CryptoCupid] Existing accounts:", accounts);
+      // Get accounts - try eth_accounts first, then eth_requestAccounts
+      let accounts;
+      try {
+        accounts = await window.ethereum.request({ method: "eth_accounts" });
+      } catch (e) {
+        console.log("[CryptoCupid] eth_accounts failed, trying eth_requestAccounts");
+      }
 
-      // If no accounts, request connection
       if (!accounts || accounts.length === 0) {
-        console.log("[CryptoCupid] No existing accounts, requesting connection...");
         accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
-        console.log("[CryptoCupid] Requested accounts:", accounts);
       }
 
       if (!accounts || accounts.length === 0) {
-        throw new Error("No accounts returned. Please unlock your wallet and try again.");
+        throw new Error("No accounts found. Please connect your wallet.");
       }
 
-      // Use address directly without viem's getAddress (simpler, less chance of issues)
-      this.address = accounts[0].toLowerCase();
-      console.log("[CryptoCupid] Connected address:", this.address);
+      this.address = accounts[0];
+      console.log("[CryptoCupid] Address:", this.address);
 
       // Get chain ID
       const chainIdHex = await window.ethereum.request({ method: "eth_chainId" });
       this.chainId = parseInt(chainIdHex, 16);
-      console.log("[CryptoCupid] Connected to chain:", this.chainId);
+      console.log("[CryptoCupid] Chain:", this.chainId);
 
-      // Get viem chain config or use a default
-      const viemChain = VIEM_CHAINS[this.chainId] || {
-        id: this.chainId,
-        name: `Chain ${this.chainId}`,
-        nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 },
-        rpcUrls: { default: { http: [] } },
-      };
-
-      // Create viem wallet client
-      this.walletClient = createWalletClient({
-        account: this.address,
-        chain: viemChain,
-        transport: custom(window.ethereum),
-      });
-
-      // Create viem public client for read operations
-      this.publicClient = createPublicClient({
-        chain: viemChain,
-        transport: custom(window.ethereum),
-      });
-
-      console.log("[CryptoCupid] Viem clients created successfully");
-
-      // Also create ethers provider/signer for contract interactions
+      // Create ethers provider/signer
       this.provider = new ethers.BrowserProvider(window.ethereum);
       this.signer = await this.provider.getSigner();
-
-      console.log("[CryptoCupid] Ethers provider ready");
+      console.log("[CryptoCupid] Provider ready");
 
       // Check if network is supported
       const chainConfig = SUPPORTED_CHAINS[this.chainId];
