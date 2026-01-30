@@ -4,7 +4,19 @@
  */
 
 import { ethers } from "ethers";
+import { createWalletClient, createPublicClient, custom, getAddress } from "viem";
+import { base, mainnet, arbitrum, polygon, sepolia, arbitrumSepolia } from "viem/chains";
 import { SUPPORTED_CHAINS, DEFAULT_CHAIN_ID } from "./config.js";
+
+// Map chain IDs to viem chain objects
+const VIEM_CHAINS = {
+  1: mainnet,
+  8453: base,
+  42161: arbitrum,
+  137: polygon,
+  11155111: sepolia,
+  421614: arbitrumSepolia,
+};
 
 // ============ Contract ABIs ============
 // These are generated during compilation - import from artifacts in production
@@ -105,162 +117,130 @@ export class CryptoCupidSDK {
   }
 
   /**
-   * Get the Ethereum provider (supports multiple wallet types)
-   */
-  getEthereumProvider() {
-    if (typeof window === "undefined") return null;
-
-    // Check for various wallet providers
-    // Base Wallet / Coinbase Wallet
-    if (window.ethereum?.isCoinbaseWallet) {
-      console.log("[CryptoCupid] Detected Coinbase/Base Wallet");
-      return window.ethereum;
-    }
-
-    // If multiple providers exist (e.g., MetaMask + Coinbase)
-    if (window.ethereum?.providers?.length) {
-      const coinbaseProvider = window.ethereum.providers.find(p => p.isCoinbaseWallet);
-      if (coinbaseProvider) {
-        console.log("[CryptoCupid] Detected Coinbase/Base Wallet from providers array");
-        return coinbaseProvider;
-      }
-      console.log("[CryptoCupid] Using first available provider");
-      return window.ethereum.providers[0];
-    }
-
-    // Standard ethereum provider
-    if (window.ethereum) {
-      console.log("[CryptoCupid] Detected standard Ethereum provider");
-      return window.ethereum;
-    }
-
-    return null;
-  }
-
-  /**
-   * Connect to wallet and initialize SDK
+   * Connect to wallet and initialize SDK using viem
    */
   async connect() {
-    console.log("[CryptoCupid] Starting wallet connection...");
+    console.log("[CryptoCupid] Starting wallet connection with viem...");
 
-    const ethProvider = this.getEthereumProvider();
-    if (!ethProvider) {
-      throw new Error("No wallet found. Please install MetaMask or open in a wallet browser.");
+    if (typeof window === "undefined" || !window.ethereum) {
+      throw new Error("No wallet found. Please install a wallet or open in a wallet browser.");
     }
 
-    console.log("[CryptoCupid] Provider found:", {
-      isCoinbaseWallet: ethProvider.isCoinbaseWallet,
-      isMetaMask: ethProvider.isMetaMask
-    });
-
-    let accounts;
     try {
-      // First try to get already connected accounts (works better in wallet browsers)
-      console.log("[CryptoCupid] Checking for existing accounts...");
-      accounts = await ethProvider.request({ method: "eth_accounts" });
-      console.log("[CryptoCupid] Existing accounts:", accounts);
+      // Request accounts using viem's approach
+      console.log("[CryptoCupid] Requesting accounts...");
+      const accounts = await window.ethereum.request({
+        method: "eth_requestAccounts"
+      });
 
-      // If no accounts, request connection
       if (!accounts || accounts.length === 0) {
-        console.log("[CryptoCupid] No existing accounts, requesting connection...");
-        accounts = await ethProvider.request({ method: "eth_requestAccounts" });
-        console.log("[CryptoCupid] Requested accounts:", accounts);
+        throw new Error("No accounts returned from wallet.");
       }
-    } catch (err) {
-      console.error("[CryptoCupid] Account request failed:", err);
-      if (err.code === 4001) {
-        throw new Error("Connection rejected. Please approve the connection.");
+
+      this.address = getAddress(accounts[0]);
+      console.log("[CryptoCupid] Account connected:", this.address);
+
+      // Get chain ID
+      const chainIdHex = await window.ethereum.request({ method: "eth_chainId" });
+      this.chainId = parseInt(chainIdHex, 16);
+      console.log("[CryptoCupid] Chain ID:", this.chainId);
+
+      // Get viem chain config or use a default
+      const viemChain = VIEM_CHAINS[this.chainId] || {
+        id: this.chainId,
+        name: `Chain ${this.chainId}`,
+        nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 },
+        rpcUrls: { default: { http: [] } },
+      };
+
+      // Create viem wallet client
+      this.walletClient = createWalletClient({
+        account: this.address,
+        chain: viemChain,
+        transport: custom(window.ethereum),
+      });
+
+      // Create viem public client for read operations
+      this.publicClient = createPublicClient({
+        chain: viemChain,
+        transport: custom(window.ethereum),
+      });
+
+      console.log("[CryptoCupid] Viem clients created successfully");
+
+      // Also create ethers provider/signer for contract interactions
+      this.provider = new ethers.BrowserProvider(window.ethereum);
+      this.signer = await this.provider.getSigner();
+
+      console.log("[CryptoCupid] Ethers provider ready");
+
+      // Check if network is supported
+      const chainConfig = SUPPORTED_CHAINS[this.chainId];
+      if (!chainConfig) {
+        // Allow any network in demo mode
+        this.demoMode = true;
+        this.networkName = `Chain ${this.chainId}`;
+        console.log("Running in demo mode - contracts not available on this network");
+        return { address: this.address, chainId: this.chainId, networkName: this.networkName, demoMode: true };
       }
-      throw err;
-    }
 
-    if (!accounts || accounts.length === 0) {
-      throw new Error("No accounts found. Please connect your wallet.");
-    }
+      this.networkName = chainConfig.name;
+      this.demoMode = chainConfig.demoMode || false;
 
-    console.log("[CryptoCupid] Account connected:", accounts[0]);
-
-    this.address = accounts[0];
-    this._ethProvider = ethProvider;
-
-    console.log("[CryptoCupid] Creating ethers provider...");
-    this.provider = new ethers.BrowserProvider(ethProvider);
-
-    console.log("[CryptoCupid] Getting signer...");
-    this.signer = await this.provider.getSigner();
-
-    console.log("[CryptoCupid] Getting network info...");
-
-    const network = await this.provider.getNetwork();
-    this.chainId = Number(network.chainId);
-
-    console.log("[CryptoCupid] Connected to chain:", this.chainId);
-
-    // Check if network is supported
-    const chainConfig = SUPPORTED_CHAINS[this.chainId];
-    if (!chainConfig) {
-      // Allow any network in demo mode
-      this.demoMode = true;
-      this.networkName = `Chain ${this.chainId}`;
-      console.log("Running in demo mode - contracts not available on this network");
-      return { address: this.address, chainId: this.chainId, networkName: this.networkName, demoMode: true };
-    }
-
-    this.networkName = chainConfig.name;
-    this.demoMode = chainConfig.demoMode || false;
-
-    // Check if contracts are configured (skip in demo mode)
-    if (!chainConfig.demoMode && (!chainConfig.contracts.CryptoCupid || !chainConfig.contracts.CupidToken)) {
-      this.demoMode = true;
-      console.log(`Contracts not deployed on ${chainConfig.name} - running in demo mode`);
-    }
-
-    // Initialize contract instances only if not in demo mode and contracts are deployed
-    if (!this.demoMode && chainConfig.contracts.CryptoCupid && chainConfig.contracts.CupidToken) {
-      this.contracts.dating = new ethers.Contract(
-        chainConfig.contracts.CryptoCupid,
-        CRYPTO_CUPID_ABI,
-        this.signer
-      );
-
-      this.contracts.token = new ethers.Contract(
-        chainConfig.contracts.CupidToken,
-        CUPID_TOKEN_ABI,
-        this.signer
-      );
-
-      // CoFHE client initialization disabled - package has broken exports
-      // FHE encryption will use fallback encoding until cofhejs is fixed
-      // See: https://github.com/FhenixProtocol/cofhejs/issues
-      if (chainConfig.fhenixEnabled) {
-        console.log("FHE features using fallback encoding (CoFHE SDK disabled)");
-        this.cofhe = null;
+      // Check if contracts are configured (skip in demo mode)
+      if (!chainConfig.demoMode && (!chainConfig.contracts.CryptoCupid || !chainConfig.contracts.CupidToken)) {
+        this.demoMode = true;
+        console.log(`Contracts not deployed on ${chainConfig.name} - running in demo mode`);
       }
-    }
 
-    // Listen for account changes
-    if (this._ethProvider?.on) {
-      this._ethProvider.on("accountsChanged", (accounts) => {
+      // Initialize contract instances only if not in demo mode and contracts are deployed
+      if (!this.demoMode && chainConfig.contracts.CryptoCupid && chainConfig.contracts.CupidToken) {
+        this.contracts.dating = new ethers.Contract(
+          chainConfig.contracts.CryptoCupid,
+          CRYPTO_CUPID_ABI,
+          this.signer
+        );
+
+        this.contracts.token = new ethers.Contract(
+          chainConfig.contracts.CupidToken,
+          CUPID_TOKEN_ABI,
+          this.signer
+        );
+
+        // CoFHE client initialization disabled - package has broken exports
+        if (chainConfig.fhenixEnabled) {
+          console.log("FHE features using fallback encoding (CoFHE SDK disabled)");
+          this.cofhe = null;
+        }
+      }
+
+      // Listen for account and chain changes
+      window.ethereum.on("accountsChanged", (accounts) => {
         if (accounts.length === 0) {
           this.disconnect();
         } else {
-          this.address = accounts[0];
           window.location.reload();
         }
       });
 
-      // Listen for chain changes
-      this._ethProvider.on("chainChanged", () => {
+      window.ethereum.on("chainChanged", () => {
         window.location.reload();
       });
-    }
 
-    return {
-      address: this.address,
-      chainId: this.chainId,
-      networkName: this.networkName,
-      demoMode: this.demoMode,
-    };
+      return {
+        address: this.address,
+        chainId: this.chainId,
+        networkName: this.networkName,
+        demoMode: this.demoMode,
+      };
+
+    } catch (err) {
+      console.error("[CryptoCupid] Connection failed:", err);
+      if (err.code === 4001) {
+        throw new Error("Connection rejected. Please approve the connection in your wallet.");
+      }
+      throw new Error(err.message || "Failed to connect wallet");
+    }
   }
 
   /**
