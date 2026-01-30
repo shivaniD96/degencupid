@@ -148,20 +148,24 @@ export class CryptoCupidSDK {
       throw new Error("No wallet found. Please install MetaMask or open in a wallet browser.");
     }
 
-    console.log("[CryptoCupid] Provider found, requesting accounts...");
+    console.log("[CryptoCupid] Provider found:", {
+      isCoinbaseWallet: ethProvider.isCoinbaseWallet,
+      isMetaMask: ethProvider.isMetaMask
+    });
 
-    // Request account access with timeout
     let accounts;
     try {
-      const accountsPromise = ethProvider.request({
-        method: "eth_requestAccounts"
-      });
+      // First try to get already connected accounts (works better in wallet browsers)
+      console.log("[CryptoCupid] Checking for existing accounts...");
+      accounts = await ethProvider.request({ method: "eth_accounts" });
+      console.log("[CryptoCupid] Existing accounts:", accounts);
 
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error("Wallet connection timed out. Please try again.")), 30000)
-      );
-
-      accounts = await Promise.race([accountsPromise, timeoutPromise]);
+      // If no accounts, request connection
+      if (!accounts || accounts.length === 0) {
+        console.log("[CryptoCupid] No existing accounts, requesting connection...");
+        accounts = await ethProvider.request({ method: "eth_requestAccounts" });
+        console.log("[CryptoCupid] Requested accounts:", accounts);
+      }
     } catch (err) {
       console.error("[CryptoCupid] Account request failed:", err);
       if (err.code === 4001) {
@@ -177,8 +181,12 @@ export class CryptoCupidSDK {
     console.log("[CryptoCupid] Account connected:", accounts[0]);
 
     this.address = accounts[0];
-    this._ethProvider = ethProvider; // Store reference to the raw provider
+    this._ethProvider = ethProvider;
+
+    console.log("[CryptoCupid] Creating ethers provider...");
     this.provider = new ethers.BrowserProvider(ethProvider);
+
+    console.log("[CryptoCupid] Getting signer...");
     this.signer = await this.provider.getSigner();
 
     console.log("[CryptoCupid] Getting network info...");
