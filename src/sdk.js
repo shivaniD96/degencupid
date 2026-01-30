@@ -4,7 +4,7 @@
  */
 
 import { ethers } from "ethers";
-import { createWalletClient, createPublicClient, custom, getAddress } from "viem";
+import { createWalletClient, createPublicClient, custom } from "viem";
 import { base, mainnet, arbitrum, polygon, sepolia, arbitrumSepolia } from "viem/chains";
 import { SUPPORTED_CHAINS, DEFAULT_CHAIN_ID } from "./config.js";
 
@@ -162,19 +162,24 @@ export class CryptoCupidSDK {
     });
 
     try {
-      // Simply request accounts - the injected provider handles everything
-      console.log("[CryptoCupid] Requesting accounts from injected provider...");
-      const accounts = await window.ethereum.request({
-        method: "eth_requestAccounts"
-      });
+      // First check if already connected (common in wallet browsers)
+      console.log("[CryptoCupid] Checking for existing connection...");
+      let accounts = await window.ethereum.request({ method: "eth_accounts" });
+      console.log("[CryptoCupid] Existing accounts:", accounts);
 
-      console.log("[CryptoCupid] Accounts received:", accounts);
+      // If no accounts, request connection
+      if (!accounts || accounts.length === 0) {
+        console.log("[CryptoCupid] No existing accounts, requesting connection...");
+        accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
+        console.log("[CryptoCupid] Requested accounts:", accounts);
+      }
 
       if (!accounts || accounts.length === 0) {
         throw new Error("No accounts returned. Please unlock your wallet and try again.");
       }
 
-      this.address = getAddress(accounts[0]);
+      // Use address directly without viem's getAddress (simpler, less chance of issues)
+      this.address = accounts[0].toLowerCase();
       console.log("[CryptoCupid] Connected address:", this.address);
 
       // Get chain ID
