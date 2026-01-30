@@ -117,33 +117,70 @@ export class CryptoCupidSDK {
   }
 
   /**
+   * Detect if running inside a wallet browser (Base, Coinbase, MetaMask, etc.)
+   */
+  isWalletBrowser() {
+    if (typeof window === "undefined") return false;
+    const ua = navigator.userAgent || "";
+    // Check for common wallet browser signatures
+    return (
+      ua.includes("CoinbaseWallet") ||
+      ua.includes("BaseBrowser") ||
+      ua.includes("MetaMask") ||
+      ua.includes("Trust") ||
+      ua.includes("Rainbow") ||
+      // Also check if ethereum is injected and we're on mobile
+      (window.ethereum && /Android|iPhone|iPad|iPod/i.test(ua))
+    );
+  }
+
+  /**
    * Connect to wallet and initialize SDK using viem
    */
   async connect() {
-    console.log("[CryptoCupid] Starting wallet connection with viem...");
+    console.log("[CryptoCupid] Starting wallet connection...");
+    console.log("[CryptoCupid] User agent:", navigator.userAgent);
+    console.log("[CryptoCupid] Is wallet browser:", this.isWalletBrowser());
+    console.log("[CryptoCupid] window.ethereum exists:", !!window.ethereum);
 
-    if (typeof window === "undefined" || !window.ethereum) {
-      throw new Error("No wallet found. Please install a wallet or open in a wallet browser.");
+    if (typeof window === "undefined") {
+      throw new Error("Window not available.");
     }
 
+    // Check for ethereum provider
+    if (!window.ethereum) {
+      throw new Error("No wallet found. Please install MetaMask or open this page in a wallet browser (Base, Coinbase, etc.).");
+    }
+
+    // Log provider details for debugging
+    console.log("[CryptoCupid] Provider info:", {
+      isMetaMask: window.ethereum.isMetaMask,
+      isCoinbaseWallet: window.ethereum.isCoinbaseWallet,
+      isCoinbaseBrowser: window.ethereum.isCoinbaseBrowser,
+      isBase: window.ethereum.isBase,
+      providerCount: window.ethereum.providers?.length
+    });
+
     try {
-      // Request accounts using viem's approach
-      console.log("[CryptoCupid] Requesting accounts...");
+      // Simply request accounts - the injected provider handles everything
+      console.log("[CryptoCupid] Requesting accounts from injected provider...");
       const accounts = await window.ethereum.request({
         method: "eth_requestAccounts"
       });
 
+      console.log("[CryptoCupid] Accounts received:", accounts);
+
       if (!accounts || accounts.length === 0) {
-        throw new Error("No accounts returned from wallet.");
+        throw new Error("No accounts returned. Please unlock your wallet and try again.");
       }
 
       this.address = getAddress(accounts[0]);
-      console.log("[CryptoCupid] Account connected:", this.address);
+      console.log("[CryptoCupid] Connected address:", this.address);
 
       // Get chain ID
       const chainIdHex = await window.ethereum.request({ method: "eth_chainId" });
       this.chainId = parseInt(chainIdHex, 16);
-      console.log("[CryptoCupid] Chain ID:", this.chainId);
+      console.log("[CryptoCupid] Connected to chain:", this.chainId);
 
       // Get viem chain config or use a default
       const viemChain = VIEM_CHAINS[this.chainId] || {
