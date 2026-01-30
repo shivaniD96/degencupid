@@ -161,24 +161,12 @@ export class CryptoCupidSDK {
         this.signer
       );
 
-      // Initialize CoFHE client if available (with timeout to prevent hanging)
+      // CoFHE client initialization disabled - package has broken exports
+      // FHE encryption will use fallback encoding until cofhejs is fixed
+      // See: https://github.com/FhenixProtocol/cofhejs/issues
       if (chainConfig.fhenixEnabled) {
-        try {
-          // Dynamic import for CoFHE SDK with timeout
-          const cofhePromise = (async () => {
-            const { CoFheClient } = await import("cofhejs");
-            return await CoFheClient.create({ provider: this.provider });
-          })();
-
-          const timeoutPromise = new Promise((_, reject) =>
-            setTimeout(() => reject(new Error("CoFHE initialization timeout")), 5000)
-          );
-
-          this.cofhe = await Promise.race([cofhePromise, timeoutPromise]);
-        } catch (e) {
-          console.warn("CoFHE SDK not available, FHE features will be limited:", e.message);
-          this.cofhe = null;
-        }
+        console.log("FHE features using fallback encoding (CoFHE SDK disabled)");
+        this.cofhe = null;
       }
     }
 
