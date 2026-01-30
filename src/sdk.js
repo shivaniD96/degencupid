@@ -105,33 +105,67 @@ export class CryptoCupidSDK {
   }
 
   /**
+   * Get the Ethereum provider (supports multiple wallet types)
+   */
+  getEthereumProvider() {
+    if (typeof window === "undefined") return null;
+
+    // Check for various wallet providers
+    // Base Wallet / Coinbase Wallet
+    if (window.ethereum?.isCoinbaseWallet) {
+      console.log("[CryptoCupid] Detected Coinbase/Base Wallet");
+      return window.ethereum;
+    }
+
+    // If multiple providers exist (e.g., MetaMask + Coinbase)
+    if (window.ethereum?.providers?.length) {
+      const coinbaseProvider = window.ethereum.providers.find(p => p.isCoinbaseWallet);
+      if (coinbaseProvider) {
+        console.log("[CryptoCupid] Detected Coinbase/Base Wallet from providers array");
+        return coinbaseProvider;
+      }
+      console.log("[CryptoCupid] Using first available provider");
+      return window.ethereum.providers[0];
+    }
+
+    // Standard ethereum provider
+    if (window.ethereum) {
+      console.log("[CryptoCupid] Detected standard Ethereum provider");
+      return window.ethereum;
+    }
+
+    return null;
+  }
+
+  /**
    * Connect to wallet and initialize SDK
    */
   async connect() {
     console.log("[CryptoCupid] Starting wallet connection...");
 
-    if (typeof window === "undefined" || !window.ethereum) {
-      throw new Error("No Ethereum provider found. Please install MetaMask or another wallet.");
+    const ethProvider = this.getEthereumProvider();
+    if (!ethProvider) {
+      throw new Error("No wallet found. Please install MetaMask or open in a wallet browser.");
     }
 
-    console.log("[CryptoCupid] Ethereum provider found, requesting accounts...");
+    console.log("[CryptoCupid] Provider found, requesting accounts...");
 
     // Request account access with timeout
     let accounts;
     try {
-      const accountsPromise = window.ethereum.request({
+      const accountsPromise = ethProvider.request({
         method: "eth_requestAccounts"
       });
 
       const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error("Wallet connection timed out. Please check if MetaMask popup is open.")), 60000)
+        setTimeout(() => reject(new Error("Wallet connection timed out. Please try again.")), 30000)
       );
 
       accounts = await Promise.race([accountsPromise, timeoutPromise]);
     } catch (err) {
       console.error("[CryptoCupid] Account request failed:", err);
       if (err.code === 4001) {
-        throw new Error("Connection rejected. Please approve the connection in your wallet.");
+        throw new Error("Connection rejected. Please approve the connection.");
       }
       throw err;
     }
@@ -143,7 +177,8 @@ export class CryptoCupidSDK {
     console.log("[CryptoCupid] Account connected:", accounts[0]);
 
     this.address = accounts[0];
-    this.provider = new ethers.BrowserProvider(window.ethereum);
+    this._ethProvider = ethProvider; // Store reference to the raw provider
+    this.provider = new ethers.BrowserProvider(ethProvider);
     this.signer = await this.provider.getSigner();
 
     console.log("[CryptoCupid] Getting network info...");
@@ -196,19 +231,21 @@ export class CryptoCupidSDK {
     }
 
     // Listen for account changes
-    window.ethereum.on("accountsChanged", (accounts) => {
-      if (accounts.length === 0) {
-        this.disconnect();
-      } else {
-        this.address = accounts[0];
-        window.location.reload();
-      }
-    });
+    if (this._ethProvider?.on) {
+      this._ethProvider.on("accountsChanged", (accounts) => {
+        if (accounts.length === 0) {
+          this.disconnect();
+        } else {
+          this.address = accounts[0];
+          window.location.reload();
+        }
+      });
 
-    // Listen for chain changes
-    window.ethereum.on("chainChanged", () => {
-      window.location.reload();
-    });
+      // Listen for chain changes
+      this._ethProvider.on("chainChanged", () => {
+        window.location.reload();
+      });
+    }
 
     return {
       address: this.address,
