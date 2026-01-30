@@ -108,25 +108,50 @@ export class CryptoCupidSDK {
    * Connect to wallet and initialize SDK
    */
   async connect() {
+    console.log("[CryptoCupid] Starting wallet connection...");
+
     if (typeof window === "undefined" || !window.ethereum) {
       throw new Error("No Ethereum provider found. Please install MetaMask or another wallet.");
     }
 
-    // Request account access
-    const accounts = await window.ethereum.request({ 
-      method: "eth_requestAccounts" 
-    });
-    
+    console.log("[CryptoCupid] Ethereum provider found, requesting accounts...");
+
+    // Request account access with timeout
+    let accounts;
+    try {
+      const accountsPromise = window.ethereum.request({
+        method: "eth_requestAccounts"
+      });
+
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("Wallet connection timed out. Please check if MetaMask popup is open.")), 60000)
+      );
+
+      accounts = await Promise.race([accountsPromise, timeoutPromise]);
+    } catch (err) {
+      console.error("[CryptoCupid] Account request failed:", err);
+      if (err.code === 4001) {
+        throw new Error("Connection rejected. Please approve the connection in your wallet.");
+      }
+      throw err;
+    }
+
     if (!accounts || accounts.length === 0) {
       throw new Error("No accounts found. Please connect your wallet.");
     }
 
+    console.log("[CryptoCupid] Account connected:", accounts[0]);
+
     this.address = accounts[0];
     this.provider = new ethers.BrowserProvider(window.ethereum);
     this.signer = await this.provider.getSigner();
-    
+
+    console.log("[CryptoCupid] Getting network info...");
+
     const network = await this.provider.getNetwork();
     this.chainId = Number(network.chainId);
+
+    console.log("[CryptoCupid] Connected to chain:", this.chainId);
 
     // Check if network is supported
     const chainConfig = SUPPORTED_CHAINS[this.chainId];
