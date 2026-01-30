@@ -161,14 +161,23 @@ export class CryptoCupidSDK {
         this.signer
       );
 
-      // Initialize CoFHE client if available
+      // Initialize CoFHE client if available (with timeout to prevent hanging)
       if (chainConfig.fhenixEnabled) {
         try {
-          // Dynamic import for CoFHE SDK
-          const { CoFheClient } = await import("@fhenixprotocol/cofhejs");
-          this.cofhe = await CoFheClient.create({ provider: this.provider });
+          // Dynamic import for CoFHE SDK with timeout
+          const cofhePromise = (async () => {
+            const { CoFheClient } = await import("cofhejs");
+            return await CoFheClient.create({ provider: this.provider });
+          })();
+
+          const timeoutPromise = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error("CoFHE initialization timeout")), 5000)
+          );
+
+          this.cofhe = await Promise.race([cofhePromise, timeoutPromise]);
         } catch (e) {
           console.warn("CoFHE SDK not available, FHE features will be limited:", e.message);
+          this.cofhe = null;
         }
       }
     }
